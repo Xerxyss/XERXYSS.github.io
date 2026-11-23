@@ -160,6 +160,17 @@
 
         <!-- Right Controls: Mode Switcher + Week Stepper + Overview -->
         <div class="flex flex-wrap items-center gap-1.5">
+          <!-- JSON Backup / Restore -->
+          <div class="flex items-center gap-1">
+            <button onclick="exportBackupJSON()" class="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition hover:bg-slate-50 sm:text-xs" title="匯出 26 週紀錄備份檔">
+              💾 備份
+            </button>
+            <label class="cursor-pointer rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition hover:bg-slate-50 sm:text-xs" title="匯入 JSON 備份檔">
+              📂 還原
+              <input type="file" id="import-json-input" accept=".json,application/json" onchange="importBackupJSON(event)" class="hidden" />
+            </label>
+          </div>
+
           <!-- Mode Switcher (Auto / Desktop / Mobile) -->
           <div class="flex items-center gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-0.5" title="切換自動偵測、桌機或手機版面">
             <span class="hidden items-center gap-1 pl-2 pr-1 text-[11px] font-bold text-slate-600 sm:inline-flex">
@@ -511,6 +522,45 @@
           <!-- Workout Tasks List -->
           <div class="space-y-2.5" id="workout-checklist-container">
             <!-- Rendered by JS -->
+          </div>
+
+          <!-- YouTube Follow-Along Videos for Current Day -->
+          <div class="mt-5 rounded-2xl border border-rose-200/80 bg-rose-50/40 p-4">
+            <div class="mb-2.5 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-rose-600 text-xs font-black text-white">▶</span>
+                <span class="text-xs font-black text-navy-900">本日跟練 YouTube 影片</span>
+              </div>
+              <span id="yt-day-tag" class="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-bold text-rose-700 border border-rose-200">依當日課表推薦</span>
+            </div>
+
+            <!-- Active Embedded Video Player -->
+            <div id="yt-player-stage" class="mb-3 overflow-hidden rounded-2xl border border-slate-200 bg-navy-900 shadow-xs">
+              <div class="relative aspect-video w-full bg-black">
+                <iframe
+                  id="yt-active-iframe"
+                  src=""
+                  title="YouTube 跟練播放器"
+                  class="h-full w-full border-0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowfullscreen
+                ></iframe>
+              </div>
+              <div class="flex items-center justify-between gap-2 bg-white px-3 py-2">
+                <div class="min-w-0 flex-1">
+                  <div id="yt-active-title" class="truncate text-xs font-black text-navy-900">載入跟練影片中...</div>
+                  <div id="yt-active-meta" class="text-[10px] font-semibold text-slate-500">點擊下方影片可直接切換播放</div>
+                </div>
+                <a id="yt-active-ext-link" href="https://www.youtube.com" target="_blank" rel="noopener noreferrer" class="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100">
+                  另開 YT ↗
+                </a>
+              </div>
+            </div>
+
+            <!-- Video Selector Cards -->
+            <div class="space-y-2.5" id="youtube-follow-container">
+              <!-- Rendered by JS -->
+            </div>
           </div>
         </section>
       </div>
@@ -978,6 +1028,7 @@
       renderHabitsSection();
       renderDietSection();
       renderWorkoutSection();
+      renderYouTubeSection();
     }
 
     function renderWeekHeader() {
@@ -1170,219 +1221,428 @@
         const pmAvgStr = pmSList.length ? `${Math.round(pmSList.reduce((a,b)=>a+b,0)/pmSList.length)}/${Math.round(pmDList.reduce((a,b)=>a+b,0)/pmDList.length)}` : '--/--';
 
         if (avgDisplay) avgDisplay.innerHTML = `${avgS} / ${avgD} <span class="text-xs font-normal text-slate-500">mmHg</span>`;
-        setTextById('weekly-avg-subtext', `早均 ${amAvgStr} ・ 晚均 ${pmAvgStr}（共 ${allS.length} 筆）`);
-
-        if (statusBadge) {
-          if (avgS < 120 && avgD < 80) {
-            statusBadge.textContent = '✅ 正常理想血壓';
-            statusBadge.className = 'rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800';
-          } else if (avgS < 130 && avgD < 80) {
-            statusBadge.textContent = '🟡 血壓偏高期';
-            statusBadge.className = 'rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800';
-          } else if (avgS < 140 || avgD < 90) {
-            statusBadge.textContent = '🟠 第一期高血壓範圍';
-            statusBadge.className = 'rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-bold text-orange-800';
-          } else {
-            statusBadge.textContent = '🔴 第二期高血壓範圍';
-            statusBadge.className = 'rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800';
-          }
-        }
-      }
+      document.getElementById('workout-checklist-container').innerHTML = html;
+      document.getElementById('workout-counter').textContent = `${done} / ${workout.items.length}`;
     }
 
-    function renderBPChart() {
-      setTextById('bp-chart-title', `📈 第 ${selectedWeek} 週早晚收縮壓／舒張壓趨勢圖`);
-      const ctx = document.getElementById('bpTrendChart');
-      if (!ctx || typeof Chart === 'undefined') return;
-
-      const labels = DAYS_INFO.map(d => d.short);
-      const amSbpData = DAYS_INFO.map(d => {
-        const v = getDayData(selectedWeek, d.id).amSbp;
-        return v ? Number(v) : null;
-      });
-      const pmSbpData = DAYS_INFO.map(d => {
-        const v = getDayData(selectedWeek, d.id).pmSbp;
-        return v ? Number(v) : null;
-      });
-      const avgDbpData = DAYS_INFO.map(d => {
-        const rec = getDayData(selectedWeek, d.id);
-        const vals = [];
-        if (rec.amDbp) vals.push(Number(rec.amDbp));
-        if (rec.pmDbp) vals.push(Number(rec.pmDbp));
-        return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
-      });
-
-      if (bpChartInstance) {
-        bpChartInstance.destroy();
-      }
-
-      bpChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            {
-              label: '早晨收縮壓',
-              data: amSbpData,
-              borderColor: '#f2821b',
-              backgroundColor: '#f2821b',
-              tension: 0.3,
-              spanGaps: true,
-              borderWidth: 2.5,
-              pointRadius: 4
-            },
-            {
-              label: '睡前收縮壓',
-              data: pmSbpData,
-              borderColor: '#0284c7',
-              backgroundColor: '#0284c7',
-              tension: 0.3,
-              spanGaps: true,
-              borderWidth: 2.5,
-              pointRadius: 4
-            },
-            {
-              label: '平均舒張壓',
-              data: avgDbpData,
-              borderColor: '#10b981',
-              backgroundColor: '#10b981',
-              borderDash: [4, 4],
-              tension: 0.3,
-              spanGaps: true,
-              borderWidth: 2,
-              pointRadius: 3.5
-            }
-          ]
+    // YouTube Follow-Along Videos mapped to indoor workout themes
+    const YT_FOLLOW_GUIDES = {
+      1: [
+        {
+          id: 'YQGfUEv2ewo',
+          title: '節拍超慢跑 180bpm／30分鐘節拍器【早安健康】',
+          channel: '早安健康',
+          duration: '30:13',
+          note: '適合搭配 15 分鐘原地超慢跑穩定步頻，前腳掌輕著地',
+          url: 'https://www.youtube.com/watch?v=YQGfUEv2ewo',
+          thumb: 'https://img.youtube.com/vi/YQGfUEv2ewo/hqdefault.jpg'
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#0f172a',
-              padding: 10,
-              cornerRadius: 8
-            }
-          },
-          scales: {
-            y: {
-              min: 55,
-              max: 190,
-              ticks: { stepSize: 20, font: { size: 10 } },
-              grid: { color: 'rgba(148, 163, 184, 0.15)' }
-            },
-            x: {
-              ticks: { font: { size: 11, weight: 'bold' } },
-              grid: { display: false }
-            }
-          }
+        {
+          id: '95Z0J7qVkhY',
+          title: '靠牆深蹲動作要領',
+          channel: '超慢跑核心訓練 徐棟英教官',
+          duration: '00:52',
+          note: '先看動作要領再做靠牆半蹲 4 組，全程順暢呼吸不憋氣',
+          url: 'https://www.youtube.com/watch?v=95Z0J7qVkhY',
+          thumb: 'https://img.youtube.com/vi/95Z0J7qVkhY/hqdefault.jpg'
         }
-      });
-    }
+      ],
+      2: [
+        {
+          id: 'DF1qKSlVXX8',
+          title: '【2025新版✨】節拍超慢跑 180BPM 30分鐘！免設定節奏，徐棟英教練直接帶你跑【早安健康】',
+          channel: '早安健康',
+          duration: '30:37',
+          note: '心肺耐力日跟練，可分段累積 25 分鐘輕鬆微笑超慢跑',
+          url: 'https://www.youtube.com/watch?v=DF1qKSlVXX8',
+          thumb: 'https://img.youtube.com/vi/DF1qKSlVXX8/hqdefault.jpg'
+        },
+        {
+          id: 'TtbrOIUYtGw',
+          title: '30分鐘 超慢跑｜初學節拍超慢跑｜180BPM｜暖身+伸展｜有音樂♫',
+          channel: '一米六健身服利社',
+          duration: '35:07',
+          note: '含暖身與伸展引導，室內免器材輕鬆跟練',
+          url: 'https://www.youtube.com/watch?v=TtbrOIUYtGw',
+          thumb: 'https://img.youtube.com/vi/TtbrOIUYtGw/hqdefault.jpg'
+        }
+      ],
+      3: [
+        {
+          id: 'RUXp0DL-DdM',
+          title: '每天一蹲，血壓降下來',
+          channel: '啾c物理治療師',
+          duration: '01:42',
+          note: '了解等長靠牆蹲對血管張力的幫助與安全呼吸要點',
+          url: 'https://www.youtube.com/watch?v=RUXp0DL-DdM',
+          thumb: 'https://img.youtube.com/vi/RUXp0DL-DdM/hqdefault.jpg'
+        },
+        {
+          id: 'TLCTEUL_-Cs',
+          title: '20分鐘 超慢跑｜初階 節拍超慢跑｜180BPM｜無中斷廣告｜原地超慢跑',
+          channel: '一米六健身服利社',
+          duration: '20:53',
+          note: '搭配 15 分鐘原地輕快踏步／超慢跑暖身循環',
+          url: 'https://www.youtube.com/watch?v=TLCTEUL_-Cs',
+          thumb: 'https://img.youtube.com/vi/TLCTEUL_-Cs/hqdefault.jpg'
+        }
+      ],
+      4: [
+        {
+          id: '6t8fOxGhQ18',
+          title: '呼吸練習第二招，腹式呼吸練習早晚十分鐘',
+          channel: '原氣醫生Dr.BreathE',
+          duration: '00:29',
+          note: '自律神經調節日先練 5 分鐘腹式呼吸，啟動副交感神經',
+          url: 'https://www.youtube.com/watch?v=6t8fOxGhQ18',
+          thumb: 'https://img.youtube.com/vi/6t8fOxGhQ18/hqdefault.jpg'
+        },
+        {
+          id: 'fNMiULnyxuU',
+          title: '八段錦針對脾胃上下對拉 逆腹式呼吸法增強腸道消化 伸展雙手同時舒緩眼睛疲勞',
+          channel: '健康旦 HiEggo',
+          duration: '10:37',
+          note: '搭配 20 分鐘溫和伸展與八段錦理氣舒壓',
+          url: 'https://www.youtube.com/watch?v=fNMiULnyxuU',
+          thumb: 'https://img.youtube.com/vi/fNMiULnyxuU/hqdefault.jpg'
+        }
+      ],
+      5: [
+        {
+          id: 'YQGfUEv2ewo',
+          title: '節拍超慢跑 180bpm／30分鐘節拍器【早安健康】',
+          channel: '早安健康',
+          duration: '30:13',
+          note: '血管彈性日 C 超慢跑 15 分鐘節奏搭配',
+          url: 'https://www.youtube.com/watch?v=YQGfUEv2ewo',
+          thumb: 'https://img.youtube.com/vi/YQGfUEv2ewo/hqdefault.jpg'
+        },
+        {
+          id: '6AliGSYKV2k',
+          title: '入門靠牆深蹲延緩老化！改善髖關節與膝關節柔韌度 ｜徐棟英 體適能教練【早安健康】',
+          channel: '早安健康',
+          duration: '01:17',
+          note: '靠牆半蹲 4 組姿勢校準，保持膝蓋與腳尖同向',
+          url: 'https://www.youtube.com/watch?v=6AliGSYKV2k',
+          thumb: 'https://img.youtube.com/vi/6AliGSYKV2k/hqdefault.jpg'
+        }
+      ],
+      6: [
+        {
+          id: 'DF1qKSlVXX8',
+          title: '【2025新版✨】節拍超慢跑 180BPM 30分鐘！免設定節奏，徐棟英教練直接帶你跑【早安健康】',
+          channel: '早安健康',
+          duration: '30:37',
+          note: '分段有氧日早晚各 15 分鐘室內跟練參考',
+          url: 'https://www.youtube.com/watch?v=DF1qKSlVXX8',
+          thumb: 'https://img.youtube.com/vi/DF1qKSlVXX8/hqdefault.jpg'
+        },
+        {
+          id: 'O-C4t_cYWXM',
+          title: '超慢跑初學專用❤️4｜(只有節拍器)｜180BPM跑30分鐘｜美麗陽光｜班長超慢跑',
+          channel: '班長 布萊恩',
+          duration: '34:52',
+          note: '純節拍器引導，適合邊看電視邊維持穩定步頻',
+          url: 'https://www.youtube.com/watch?v=O-C4t_cYWXM',
+          thumb: 'https://img.youtube.com/vi/O-C4t_cYWXM/hqdefault.jpg'
+        }
+      ],
+      0: [
+        {
+          id: 'fNMiULnyxuU',
+          title: '八段錦針對脾胃上下對拉 逆腹式呼吸法增強腸道消化 伸展雙手同時舒緩眼睛疲勞',
+          channel: '健康旦 HiEggo',
+          duration: '10:37',
+          note: '動態恢復日溫和伸展與呼吸放鬆，迎接新的一週',
+          url: 'https://www.youtube.com/watch?v=fNMiULnyxuU',
+          thumb: 'https://img.youtube.com/vi/fNMiULnyxuU/hqdefault.jpg'
+        },
+        {
+          id: '6t8fOxGhQ18',
+          title: '呼吸練習第二招，腹式呼吸練習早晚十分鐘',
+          channel: '原氣醫生Dr.BreathE',
+          duration: '00:29',
+          note: '搭配全身關節繞環與深呼吸，降低交感神經緊繃',
+          url: 'https://www.youtube.com/watch?v=6t8fOxGhQ18',
+          thumb: 'https://img.youtube.com/vi/6t8fOxGhQ18/hqdefault.jpg'
+        }
+      ]
+    };
 
-    function renderChecklistItem(item, checked, accentClass) {
-      return `
-        <label onclick="toggleTask('${item.id}')" class="task-card ${checked ? 'completed' : ''} flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-2xs hover:border-sage-400">
-          <div class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${checked ? accentClass : 'border-slate-300 bg-white'}">
-            ${checked ? '<svg class="h-3.5 w-3.5 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>' : ''}
-          </div>
-          <div class="flex-1">
-            <div class="task-title text-xs font-bold text-navy-900 sm:text-sm">${item.title}</div>
-            <div class="task-desc mt-0.5 text-[11px] text-slate-500 sm:text-xs">${item.desc}</div>
-          </div>
-        </label>
-      `;
-    }
+    let activeVideoIndexByDay = {};
 
-    function renderHabitsSection() {
-      const dData = getDayData(selectedWeek, selectedDayId);
-      let done = 0;
-      const html = DAILY_HABITS.map(h => {
-        const chk = !!dData.checks[h.id];
-        if (chk) done++;
-        return renderChecklistItem(h, chk, 'border-amber-600 bg-amber-600');
-      }).join('');
-      const container = document.getElementById('habits-checklist-container');
-      if (container) container.innerHTML = html;
-      setTextById('habits-counter', `${done} / ${DAILY_HABITS.length}`);
-    }
+    function playYouTubeVideo(dayId, idx, shouldAutoplay = true) {
+      const videos = YT_FOLLOW_GUIDES[dayId] || YT_FOLLOW_GUIDES[1];
+      const safeIdx = Math.max(0, Math.min(idx, videos.length - 1));
+      activeVideoIndexByDay[dayId] = safeIdx;
+      const vid = videos[safeIdx];
 
-    function renderDietSection() {
-      const phaseInfo = getPhaseForWeek(selectedWeek);
-      const phaseNote = document.getElementById('week-phase-diet-note');
-      if (phaseNote) {
-        phaseNote.className = `mb-4 rounded-2xl border p-3 text-xs leading-relaxed ${phaseInfo.noteClass}`;
-        phaseNote.innerHTML = phaseInfo.noteHtml;
+      const iframe = document.getElementById('yt-active-iframe');
+      const titleEl = document.getElementById('yt-active-title');
+      const metaEl = document.getElementById('yt-active-meta');
+      const extLink = document.getElementById('yt-active-ext-link');
+
+      if (iframe && vid) {
+        const autoplayParam = shouldAutoplay ? '1' : '0';
+        iframe.src = `https://www.youtube.com/embed/${vid.id}?autoplay=${autoplayParam}&rel=0&playsinline=1`;
       }
+      if (titleEl && vid) titleEl.textContent = vid.title;
+      if (metaEl && vid) metaEl.textContent = `${vid.channel}・${vid.duration}・${vid.note}`;
+      if (extLink && vid) extLink.href = vid.url;
 
-      const diet = getDietForDay(selectedWeek, selectedDayId);
-      const dData = getDayData(selectedWeek, selectedDayId);
-
-      const renderGroup = (title, badgeCls, list) => `
-        <div class="space-y-2 rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3.5">
-          <span class="inline-flex rounded-lg ${badgeCls} px-2.5 py-1 text-xs font-black">${title}</span>
-          <div class="space-y-2 pt-1">
-            ${list.map(item => renderChecklistItem(item, !!dData.checks[item.id], 'border-sage-600 bg-sage-600')).join('')}
-          </div>
-        </div>
-      `;
-
-      const dietContainer = document.getElementById('diet-checklist-container');
-      if (dietContainer) {
-        dietContainer.innerHTML =
-          renderGroup(diet.m1Title, 'bg-sage-100 text-sage-900', diet.m1) +
-          renderGroup(diet.m2Title, 'bg-yam-100 text-yam-900', diet.m2);
+      renderYouTubeCardsOnly(dayId, safeIdx);
+      if (shouldAutoplay && vid) {
+        showToast(`▶ 正在播放：${vid.title}`);
       }
+    }
 
-      const cups = dData.waterCups || 0;
-      setTextById('water-cc-display', (cups * 300).toLocaleString());
-      let cupsHtml = '';
-      for (let i = 1; i <= 8; i++) {
-        const filled = i <= cups;
-        cupsHtml += `
-          <button onclick="setWaterCups(${i})" class="flex flex-col items-center justify-center rounded-xl border py-2 transition active:scale-95 ${
-            filled ? 'border-sky-500 bg-sky-500 text-white shadow-2xs' : 'border-slate-200 bg-white text-slate-400 hover:border-sky-300'
+    function renderYouTubeCardsOnly(dayId, activeIdx) {
+      const container = document.getElementById('youtube-follow-container');
+      if (!container) return;
+      const videos = YT_FOLLOW_GUIDES[dayId] || YT_FOLLOW_GUIDES[1];
+
+      container.innerHTML = videos.map((v, idx) => {
+        const isPlaying = idx === activeIdx;
+        return `
+          <div class="flex items-start gap-3 rounded-2xl border p-2.5 shadow-2xs transition ${
+            isPlaying ? 'border-rose-400 bg-rose-50/70 ring-1 ring-rose-300' : 'border-slate-200 bg-white hover:border-rose-300'
           }">
-            <span class="text-sm">${filled ? '💧' : '🥛'}</span>
-            <span class="mt-0.5 text-[10px] font-bold">${i * 300}</span>
-          </button>
+            <button type="button" onclick="playYouTubeVideo(${dayId}, ${idx}, true)" class="relative h-16 w-28 shrink-0 overflow-hidden rounded-xl bg-slate-900 text-left">
+              <img src="${v.thumb}" alt="${v.title}" onerror="this.src='https://placehold.co/224x128/0f172a/ffffff?text=YouTube'" class="h-full w-full object-cover opacity-95" />
+              <span class="absolute inset-0 flex items-center justify-center bg-black/25 text-xs font-black text-white">${isPlaying ? '🔊 播放中' : '▶ 播放'}</span>
+              <span class="absolute bottom-1 right-1 rounded bg-black/80 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">${v.duration}</span>
+            </button>
+            <div class="min-w-0 flex-1">
+              <button type="button" onclick="playYouTubeVideo(${dayId}, ${idx}, true)" class="line-clamp-2 text-left text-xs font-black ${isPlaying ? 'text-rose-700' : 'text-navy-900 hover:text-rose-700'}">${v.title}</button>
+              <div class="mt-0.5 flex items-center justify-between gap-2">
+                <span class="text-[10px] font-bold text-slate-500">${v.channel}</span>
+                <button type="button" onclick="playYouTubeVideo(${dayId}, ${idx}, true)" class="rounded-lg ${isPlaying ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 hover:bg-rose-200'} px-2 py-0.5 text-[10px] font-bold">
+                  ${isPlaying ? '▶ 播放中' : '▶ 直接播放'}
+                </button>
+              </div>
+              <div class="mt-1 line-clamp-1 text-[11px] text-slate-600">${v.note}</div>
+            </div>
+          </div>
         `;
-      }
-      const cupsGrid = document.getElementById('water-cups-grid');
-      if (cupsGrid) cupsGrid.innerHTML = cupsHtml;
+      }).join('');
     }
 
-    function renderWorkoutSection() {
+    function renderYouTubeSection() {
+      const dayTag = document.getElementById('yt-day-tag');
+      const dayObj = DAYS_INFO.find(d => d.id === selectedDayId);
       const workout = WORKOUT_PLAN[selectedDayId];
-      const dData = getDayData(selectedWeek, selectedDayId);
-
-      setTextById('workout-type-badge', workout.theme);
-      setTextById('workout-subtitle', `${workout.duration}・${workout.benefit}`);
-
-      const squatBadge = document.getElementById('squat-set-indicator');
-      const squatBtn = document.getElementById('btn-add-squat');
-      if (squatBadge && squatBtn) {
-        if (workout.hasSquat) {
-          squatBadge.classList.remove('hidden');
-          squatBtn.classList.remove('hidden');
-          squatBadge.textContent = `半蹲組數：${dData.squatSets || 0} / 4 組`;
-        } else {
-          squatBadge.classList.add('hidden');
-          squatBtn.classList.add('hidden');
-        }
+      if (dayTag && dayObj && workout) {
+        dayTag.textContent = `${dayObj.short}・${workout.theme}`;
       }
 
-      let done = 0;
-      const html = workout.items.map(item => {
-        const chk = !!dData.checks[item.id];
-        if (chk) done++;
-        return renderChecklistItem(item, chk, 'border-emerald-600 bg-emerald-600');
-      }).join('');
+      const currentIdx = activeVideoIndexByDay[selectedDayId] || 0;
+      const videos = YT_FOLLOW_GUIDES[selectedDayId] || YT_FOLLOW_GUIDES[1];
+      const vid = videos[Math.max(0, Math.min(currentIdx, videos.length - 1))];
 
-      const wContainer = document.getElementById('workout-checklist-container');
-      if (wContainer) wContainer.innerHTML = html;
-      setTextById('workout-counter', `${done} / ${workout.items.length}`);
+      const iframe = document.getElementById('yt-active-iframe');
+      const titleEl = document.getElementById('yt-active-title');
+      const metaEl = document.getElementById('yt-active-meta');
+      const extLink = document.getElementById('yt-active-ext-link');
+
+      if (iframe && vid) {
+        iframe.src = `https://www.youtube.com/embed/${vid.id}?autoplay=0&rel=0&playsinline=1`;
+      }
+      if (titleEl && vid) titleEl.textContent = vid.title;
+      if (metaEl && vid) metaEl.textContent = `${vid.channel}・${vid.duration}・${vid.note}`;
+      if (extLink && vid) extLink.href = vid.url;
+
+      renderYouTubeCardsOnly(selectedDayId, currentIdx);
+    }
+      ],
+      2: [
+        {
+          title: '【2025新版✨】節拍超慢跑 180BPM 30分鐘！免設定節奏，徐棟英教練直接帶你跑【早安健康】',
+          channel: '早安健康',
+          duration: '30:37',
+          note: '心肺耐力日跟練，可分段累積 25 分鐘輕鬆微笑超慢跑',
+          url: 'https://www.youtube.com/watch?v=DF1qKSlVXX8',
+          thumb: 'https://img.youtube.com/vi/DF1qKSlVXX8/hqdefault.jpg'
+        },
+        {
+          title: '30分鐘 超慢跑｜初學節拍超慢跑｜180BPM｜暖身+伸展｜有音樂♫',
+          channel: '一米六健身服利社',
+          duration: '35:07',
+          note: '含暖身與伸展引導，室內免器材輕鬆跟練',
+          url: 'https://www.youtube.com/watch?v=TtbrOIUYtGw',
+          thumb: 'https://img.youtube.com/vi/TtbrOIUYtGw/hqdefault.jpg'
+        }
+      ],
+      3: [
+        {
+          title: '每天一蹲，血壓降下來',
+          channel: '啾c物理治療師',
+          duration: '01:42',
+          note: '了解等長靠牆蹲對血管張力的幫助與安全呼吸要點',
+          url: 'https://www.youtube.com/watch?v=RUXp0DL-DdM',
+          thumb: 'https://img.youtube.com/vi/RUXp0DL-DdM/hqdefault.jpg'
+        },
+        {
+          title: '20分鐘 超慢跑｜初階 節拍超慢跑｜180BPM｜無中斷廣告｜原地超慢跑',
+          channel: '一米六健身服利社',
+          duration: '20:53',
+          note: '搭配 15 分鐘原地輕快踏步／超慢跑暖身循環',
+          url: 'https://www.youtube.com/watch?v=TLCTEUL_-Cs',
+          thumb: 'https://img.youtube.com/vi/TLCTEUL_-Cs/hqdefault.jpg'
+        }
+      ],
+      4: [
+        {
+          title: '呼吸練習第二招，腹式呼吸練習早晚十分鐘',
+          channel: '原氣醫生Dr.BreathE',
+          duration: '00:29',
+          note: '自律神經調節日先練 5 分鐘腹式呼吸，啟動副交感神經',
+          url: 'https://www.youtube.com/watch?v=6t8fOxGhQ18',
+          thumb: 'https://img.youtube.com/vi/6t8fOxGhQ18/hqdefault.jpg'
+        },
+        {
+          title: '八段錦針對脾胃上下對拉 逆腹式呼吸法增強腸道消化 伸展雙手同時舒緩眼睛疲勞',
+          channel: '健康旦 HiEggo',
+          duration: '10:37',
+          note: '搭配 20 分鐘溫和伸展與八段錦理氣舒壓',
+          url: 'https://www.youtube.com/watch?v=fNMiULnyxuU',
+          thumb: 'https://img.youtube.com/vi/fNMiULnyxuU/hqdefault.jpg'
+        }
+      ],
+      5: [
+        {
+          title: '節拍超慢跑 180bpm／30分鐘節拍器【早安健康】',
+          channel: '早安健康',
+          duration: '30:13',
+          note: '血管彈性日 C 超慢跑 15 分鐘節奏搭配',
+          url: 'https://www.youtube.com/watch?v=YQGfUEv2ewo',
+          thumb: 'https://img.youtube.com/vi/YQGfUEv2ewo/hqdefault.jpg'
+        },
+        {
+          title: '入門靠牆深蹲延緩老化！改善髖關節與膝關節柔韌度 ｜徐棟英 體適能教練【早安健康】',
+          channel: '早安健康',
+          duration: '01:17',
+          note: '靠牆半蹲 4 組姿勢校準，保持膝蓋與腳尖同向',
+          url: 'https://www.youtube.com/watch?v=6AliGSYKV2k',
+          thumb: 'https://img.youtube.com/vi/6AliGSYKV2k/hqdefault.jpg'
+        }
+      ],
+      6: [
+        {
+          title: '【2025新版✨】節拍超慢跑 180BPM 30分鐘！免設定節奏，徐棟英教練直接帶你跑【早安健康】',
+          channel: '早安健康',
+          duration: '30:37',
+          note: '分段有氧日早晚各 15 分鐘室內跟練參考',
+          url: 'https://www.youtube.com/watch?v=DF1qKSlVXX8',
+          thumb: 'https://img.youtube.com/vi/DF1qKSlVXX8/hqdefault.jpg'
+        },
+        {
+          title: '超慢跑初學專用❤️4｜(只有節拍器)｜180BPM跑30分鐘｜美麗陽光｜班長超慢跑',
+          channel: '班長 布萊恩',
+          duration: '34:52',
+          note: '純節拍器引導，適合邊看電視邊維持穩定步頻',
+          url: 'https://www.youtube.com/watch?v=O-C4t_cYWXM',
+          thumb: 'https://img.youtube.com/vi/O-C4t_cYWXM/hqdefault.jpg'
+        }
+      ],
+      0: [
+        {
+          title: '八段錦針對脾胃上下對拉 逆腹式呼吸法增強腸道消化 伸展雙手同時舒緩眼睛疲勞',
+          channel: '健康旦 HiEggo',
+          duration: '10:37',
+          note: '動態恢復日溫和伸展與呼吸放鬆，迎接新的一週',
+          url: 'https://www.youtube.com/watch?v=fNMiULnyxuU',
+          thumb: 'https://img.youtube.com/vi/fNMiULnyxuU/hqdefault.jpg'
+        },
+        {
+          title: '呼吸練習第二招，腹式呼吸練習早晚十分鐘',
+          channel: '原氣醫生Dr.BreathE',
+          duration: '00:29',
+          note: '搭配全身關節繞環與深呼吸，降低交感神經緊繃',
+          url: 'https://www.youtube.com/watch?v=6t8fOxGhQ18',
+          thumb: 'https://img.youtube.com/vi/6t8fOxGhQ18/hqdefault.jpg'
+        }
+      ]
+    };
+
+    function renderYouTubeSection() {
+      const container = document.getElementById('youtube-follow-container');
+      const dayTag = document.getElementById('yt-day-tag');
+      if (!container) return;
+
+      const dayObj = DAYS_INFO.find(d => d.id === selectedDayId);
+      const workout = WORKOUT_PLAN[selectedDayId];
+      if (dayTag && dayObj && workout) {
+        dayTag.textContent = `${dayObj.short}・${workout.theme}`;
+      }
+
+      const videos = YT_FOLLOW_GUIDES[selectedDayId] || YT_FOLLOW_GUIDES[1];
+      container.innerHTML = videos.map(v => `
+        <a href="${v.url}" target="_blank" rel="noopener noreferrer" class="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xs transition hover:border-rose-300 hover:shadow-sm">
+          <div class="relative h-16 w-28 shrink-0 overflow-hidden rounded-xl bg-slate-900">
+            <img src="${v.thumb}" alt="${v.title}" onerror="this.src='https://placehold.co/224x128/0f172a/ffffff?text=YouTube'" class="h-full w-full object-cover opacity-95 transition group-hover:scale-105" />
+            <span class="absolute bottom-1 right-1 rounded bg-black/80 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">${v.duration}</span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="line-clamp-2 text-xs font-black text-navy-900 group-hover:text-rose-700">${v.title}</div>
+            <div class="mt-0.5 text-[10px] font-bold text-slate-500">${v.channel}</div>
+            <div class="mt-1 line-clamp-1 text-[11px] text-slate-600">${v.note}</div>
+          </div>
+        </a>
+      `).join('');
+    }
+
+    // Export & Import JSON Backup for 26-Week LocalStorage Data
+    function exportBackupJSON() {
+      try {
+        const payload = {
+          app: '26week_health_dashboard',
+          exportedAt: new Date().toISOString(),
+          data: appState
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `26週護肝穩壓備份_第${selectedWeek}週.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('💾 已匯出 26 週紀錄備份檔（JSON）');
+      } catch (e) {
+        console.warn('Export backup error:', e);
+        showToast('匯出備份失敗，請稍後再試');
+      }
+    }
+
+    function importBackupJSON(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          const importedState = parsed && parsed.data ? parsed.data : parsed;
+          if (!importedState || typeof importedState.weeks !== 'object') {
+            showToast('備份檔格式不正確');
+            return;
+          }
+          appState = {
+            currentWeek: importedState.currentWeek || 1,
+            weeks: importedState.weeks
+          };
+          selectedWeek = appState.currentWeek;
+          saveAppState();
+          renderAll();
+          showToast('📂 已成功還原 26 週打卡與血壓紀錄！');
+        } catch (err) {
+          console.warn('Import backup error:', err);
+          showToast('無法解析備份檔案');
+        } finally {
+          event.target.value = '';
+        }
+      };
+      reader.readAsText(file);
     }
 
     // ==========================================
